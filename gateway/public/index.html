@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Inteli Facturas Pro</title>
+    <link rel="preconnect" href="https://unpkg.com" />
+    <style>
+      :root { --inteli:#52CC28; }
+      body { margin:0; font-family: Inter, system-ui, Arial; background:#0b0f14; color:#d6e3e2; }
+      header { display:flex; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid #1d2935; background:#0f141a; }
+      .logo { width:10px; height:10px; background:var(--inteli); border-radius:999px; }
+      .wrap { max-width:1200px; margin:24px auto; padding:0 16px; }
+      .card { background:#0f141a; border:1px solid #1d2935; border-radius:16px; padding:16px; }
+      button { background:var(--inteli); color:#071017; border:0; padding:10px 16px; border-radius:10px; font-weight:700; cursor:pointer; }
+      input[type=file] { padding:14px; border:1px dashed var(--inteli); border-radius:12px; width:100%; background:#0b1218; color:#cfe; }
+      table { width:100%; border-collapse:collapse; margin-top:12px; }
+      th, td { text-align:left; padding:10px; border-bottom:1px solid #15212e; font-size:14px; }
+      .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+      .mt { margin-top:14px; }
+      .muted { color:#92a7ae; font-size:12px; }
+      .pill { background:#0b1f16; color:#8ef0b2; padding:3px 8px; border-radius:999px; font-size:12px; }
+      .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:10px; }
+      .thumb { background:#0b1218; border:1px solid #1d2935; border-radius:12px; padding:6px; display:flex; flex-direction:column; gap:6px; }
+      .thumb img { width:100%; height:120px; object-fit:cover; border-radius:8px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo"></div>
+      <strong>Inteli Facturas Pro</strong>
+      <span class="pill">OCR mejorado · hasta 20 archivos</span>
+    </header>
+    <div id="app" class="wrap"></div>
+
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+    <script>
+      const e = React.createElement;
+      function App(){
+        const [items,setItems]=React.useState([]);
+        const [busy,setBusy]=React.useState(false);
+        const [previews,setPreviews]=React.useState([]);
+        const inputRef=React.useRef(null);
+        const STORAGE_KEY="inteli-facturas-items";
+
+        React.useEffect(()=>{
+          try{
+            const stored=localStorage.getItem(STORAGE_KEY);
+            if(stored){
+              const parsed=JSON.parse(stored);
+              if(Array.isArray(parsed)) setItems(parsed);
+            }
+          }catch(e){ console.warn("No se pudo leer cache",e); }
+        },[]);
+
+        React.useEffect(()=>{
+          try{
+            if(items.length) localStorage.setItem(STORAGE_KEY,JSON.stringify(items));
+            else localStorage.removeItem(STORAGE_KEY);
+          }catch(e){ console.warn("No se pudo guardar cache",e); }
+        },[items]);
+
+        function onFilesChange(ev){
+          const files = Array.from(ev.target.files||[]).slice(0,20);
+          setPreviews(files.map(f=>({name:f.name, url:URL.createObjectURL(f)})));
+        }
+
+        async function onSubmit(ev){
+          ev.preventDefault();
+          const files = Array.from(inputRef.current.files||[]).slice(0,20);
+          if(!files.length) return;
+          setBusy(true);
+          const fd = new FormData();
+          files.forEach(f=>fd.append("files",f));
+          const r = await fetch("/procesar-lote",{method:"POST",body:fd});
+          const j = await r.json();
+          if(j.items) setItems(prev=>[...prev,...j.items]);
+          setBusy(false);
+        }
+
+        function exportExcel(){
+          const arr = items.map(x=>({
+            Archivo: x.__file||"", Fecha:x.fecha||"", Tipo:x.tipo||"",
+            "Nro Comprobante":x.numero_comprobante||"", CUIT:x.cuit||"",
+            "Razón Social":x.razon_social||"",
+            Domicilio:x.domicilio_cliente||"",
+            "Importe Neto Gravado":x.importe_neto_gravado||x.subtotal||"",
+            "Importe Neto No Gravado":x.importe_neto_no_gravado||"",
+            "Importe Exento":x.importe_exento||"",
+            "IVA 21%":x.iva_21||"",
+            "IVA 10,5%":x.iva_105||"",
+            "IVA 27%":x.iva_27||"",
+            "IVA Total":x.iva||"",
+            "Otros Conceptos":x.importe_otros_conceptos||"",
+            Total:x.total||""
+          }));
+          const wb=XLSX.utils.book_new();
+          const ws=XLSX.utils.json_to_sheet(arr);
+            XLSX.utils.book_append_sheet(wb,ws,"Facturas");
+            XLSX.writeFile(wb,"facturas.xlsx");
+        }
+
+        function clearAll(){
+          setItems([]);
+          setPreviews([]);
+          if(inputRef.current) inputRef.current.value="";
+        }
+
+        return e("div",null,
+          e("div",{className:"card"},
+            e("form",{onSubmit:onSubmit},
+              e("input",{type:"file",accept:".png,.jpg,.jpeg,.pdf",multiple:true,ref:inputRef,onChange:onFilesChange}),
+              e("div",{className:"grid mt"},
+                previews.map((p,i)=>e("div",{className:"thumb",key:i},
+                  e("img",{src:p.url}),
+                  e("div",{className:"muted"},p.name)
+                ))
+              ),
+              e("div",{className:"row mt"},
+                e("button",{type:"submit",disabled:busy},busy?"Procesando...":"Procesar lote"),
+                e("button",{type:"button",onClick:exportExcel,disabled:!items.length},"Exportar Excel"),
+                e("button",{type:"button",onClick:clearAll,disabled:!items.length},"Limpiar todo")
+              )
+            )
+          ),
+          e("div",{className:"card mt"},
+            e("strong",null,"Resultados"),
+            e("table",null,
+              e("thead",null,e("tr",null,[
+                "Archivo","Fecha","Tipo","Nro","CUIT","Razón Social","Domicilio",
+                "Neto Gravado","Neto No Gravado","IVA 21%","IVA 10,5%","IVA 27%","IVA Total","Otros Conceptos","Total"
+              ].map(h=>e("th",{key:h},h)))),
+              e("tbody",null,
+                items.map((r,i)=>e("tr",{key:i},
+                  e("td",null,r.__file||""),
+                  e("td",null,r.fecha||""),
+                  e("td",null,r.tipo||""),
+                  e("td",null,r.numero_comprobante||""),
+                  e("td",null,r.cuit||""),
+                  e("td",null,r.razon_social||""),
+                  e("td",null,r.domicilio_cliente||""),
+                  e("td",null,r.importe_neto_gravado||r.subtotal||""),
+                  e("td",null,r.importe_neto_no_gravado||""),
+                  e("td",null,r.iva_21||""),
+                  e("td",null,r.iva_105||""),
+                  e("td",null,r.iva_27||""),
+                  e("td",null,r.iva||""),
+                  e("td",null,r.importe_otros_conceptos||""),
+                  e("td",null,r.total||"")
+                ))
+              )
+            )
+          )
+        );
+      }
+      ReactDOM.createRoot(document.getElementById("app")).render(React.createElement(App));
+    </script>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+# Dependencias y builds
+node_modules/
+__pycache__/
+.env
+*.sqlite
+*.xlsx
+*.png
+*.pdf
+# Docker y cache
+*.log
+*.pid
+*.bak
+*.tmp
+docker-data/
